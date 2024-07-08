@@ -7,97 +7,64 @@ import re
 import sys
 from collections.abc import Mapping
 from functools import total_ordering
+from threading import Thread
 from urllib import parse
 
 import xbmc
 import xbmcvfs
 
-youtube_url = "plugin://plugin.video.youtube/play/?video_id={}"
-
+# Constants
+YOUTUBE_URL = "plugin://plugin.video.youtube/play/?video_id={}"
 DIGIT_REGEX = re.compile(r"\d")
 SORT_TOKENS = [
-    "a ",
-    "an ",
-    "das ",
-    "de ",
-    "der ",
-    "die ",
-    "een ",
-    "el ",
-    "het ",
-    "i ",
-    "il ",
-    "l'",
-    "la ",
-    "le ",
-    "les ",
-    "o ",
-    "the ",
+    "a ", "an ", "das ", "de ", "der ", "die ", "een ", "el ", "het ",
+    "i ", "il ", "l'", "la ", "le ", "les ", "o ", "the "
 ]
 SORT_TOKEN_REGEX = re.compile(r"|".join(fr"^{i}" for i in SORT_TOKENS), re.IGNORECASE)
-
 SHORT_MONTH_LOOKUP = {
-    "Jan": 1,
-    "Feb": 2,
-    "Mar": 3,
-    "Apr": 4,
-    "May": 5,
-    "Jun": 6,
-    "Jul": 7,
-    "Aug": 8,
-    "Sep": 9,
-    "Oct": 10,
-    "Nov": 11,
-    "Dec": 12,
+    "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+    "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
 }
 
 
 def copy2clip(txt):
     """
-    Takes a text string and attempts to copy it to the clipboard of the device
-    :param txt: Text to send to clipboard
+    Takes a text string and attempts to copy it to the clipboard of the device.
+    :param txt: Text to send to clipboard.
     :type txt: str
-    :return: None
-    :rtype: None
     """
     import subprocess
 
     platform = sys.platform
-    if platform == "win32":
-        try:
+    try:
+        if platform == "win32":
             cmd = f"echo {txt.strip()}|clip"
-            return subprocess.check_call(cmd, shell=True)
-        except Exception as e:
-            log(f"Failure to copy to clipboard, \n{e}", "error")
-    elif platform.startswith("linux") or platform == "darwin":
-        try:
-            from subprocess import Popen, PIPE
-
-            cmd = "pbcopy" if platform == "darwin" else ["xsel", "-pi"]
-            kwargs = {"stdin": PIPE, "text": True}
-            p = Popen(cmd, **kwargs)
-            p.communicate(input=str(txt))
-        except Exception as e:
-            log(f"Failure to copy to clipboard, \n{e}", "error")
+            subprocess.check_call(cmd, shell=True)
+        elif platform.startswith("linux"):
+            cmd = ["xsel", "-pi"]
+            with subprocess.Popen(cmd, stdin=subprocess.PIPE, text=True) as p:
+                p.communicate(input=str(txt))
+        elif platform == "darwin":
+            cmd = "pbcopy"
+            with subprocess.Popen(cmd, stdin=subprocess.PIPE, text=True) as p:
+                p.communicate(input=str(txt))
+    except Exception as e:
+        log(f"Failure to copy to clipboard, \n{e}", "error")
 
 
 def parse_datetime(string_date, date_only=True):
     """
-    Attempts to pass over provided string and return a date or datetime object
-    :param string_date: String to parse
+    Parses a date string and returns a date or datetime object.
+    :param string_date: String to parse.
     :type string_date: str
-    :param date_only: Whether to return a date only object or not
+    :param date_only: Whether to return a date only object or not.
     :type date_only: bool
-    :return: datetime.datetime object
-    :rtype: datetime.datetime
+    :return: datetime.date or datetime.datetime object.
+    :rtype: datetime.date | datetime.datetime
     """
     if not string_date:
         return None
 
-    # Don't use datetime.datetime.strptime()
-    # Workaround for python bug caching of strptime in datetime module.
-    # Don't just try to detect TypeError because it breaks meta handler lambda calls occasionally, particularly
-    # with unix style threading.
     try:
         res = datetime.datetime.fromisoformat(string_date.rstrip("Z"))
     except ValueError:
@@ -113,18 +80,18 @@ def parse_datetime(string_date, date_only=True):
 
 def shortened_debrid(debrid):
     """
-    Returns a display like version of provided backend label
-    :param debrid: backend debrid label
+    Returns a display-like version of the provided backend label.
+    :param debrid: Backend debrid label.
     :type debrid: str
-    :return: shorthand display style debrid label
+    :return: Shorthand display style debrid label.
     :rtype: str
     """
     debrid = debrid.lower()
     if debrid == "premiumize":
         return "PM"
-    if debrid == "real_debrid":
+    elif debrid == "real_debrid":
         return "RD"
-    if debrid == "all_debrid":  # sourcery skip: assign-if-exp
+    elif debrid == "all_debrid":
         return "AD"
     else:
         return ""
@@ -132,10 +99,10 @@ def shortened_debrid(debrid):
 
 def source_size_display(size):
     """
-    Converts source size (MB) to (GB) display string
-    :param size: Size of source in MB
-    :type size: int
-    :return: Formatted string for size in GB
+    Converts source size (MB) to (GB) display string.
+    :param size: Size of source in MB.
+    :type size: int | str
+    :return: Formatted string for size in GB.
     :rtype: str
     """
     if size == "Variable":
@@ -148,10 +115,10 @@ def source_size_display(size):
 
 def bytes_size_display(size):
     """
-    Converts source size (bytes) to best fitting *binary* prefix display string
-    :param size: Size of source in bytes
+    Converts source size (bytes) to best fitting *binary* prefix display string.
+    :param size: Size of source in bytes.
     :type size: int
-    :return: Formatted string for size with best fitting *binary* prefix suffix
+    :return: Formatted string for size with best fitting *binary* prefix suffix.
     :rtype: str
     """
     size = float(size)
@@ -160,80 +127,79 @@ def bytes_size_display(size):
         size /= 1024
         suffix = "KiB"
     if size > 1024:
-        size = size / 1024
+        size /= 1024
         suffix = "MiB"
     if size > 1024:
-        size = size / 1024
+        size /= 1024
         suffix = "GiB"
     if size > 1024:
-        size = size / 1024
+        size /= 1024
         suffix = "TiB"
     return f"{size:{'.0f' if size.is_integer() else '.2f'}} {suffix}"
 
 
 def paginate_list(list_items, page, limit):
     """
-    Paginate items and returns requested page
-    :param list_items: list of items to paginate
+    Paginate items and return requested page.
+    :param list_items: List of items to paginate.
     :type list_items: list
-    :param page: requested page
+    :param page: Requested page.
     :type page: int
-    :param limit: items per page
+    :param limit: Items per page.
     :type limit: int
-    :return: items on page
+    :return: Items on the page.
     :rtype: list
     """
     if page - 1 > float(len(list_items)) / limit:
         return []
-    return list_items[(page - 1) * limit : page * limit]
+    return list_items[(page - 1) * limit: page * limit]
 
 
 def italic_string(text):
     """
-    Ease of use method to return a italic like ready string for display in Kodi
-    :param text: Text to display in italics
+    Ease of use method to return an italic-like ready string for display in Kodi.
+    :param text: Text to display in italics.
     :type text: str
-    :return: Formatted string
+    :return: Formatted string.
     :rtype: str
     """
-
     return f"[I]{text}[/I]"
 
 
 def compare_version_numbers(current, new, include_same=False):
     """
-    Compares provided version numbers and returns True if new version is higher
-    If include_same = True will also return true if the new and old versions match
-    :param current: Version number to check against
+    Compares provided version numbers and returns True if new version is higher.
+    If include_same=True, will also return True if the new and old versions match.
+    :param current: Version number to check against.
     :type current: str
-    :param new: Remote/New version number to check against
+    :param new: Remote/New version number to check against.
     :type new: str
-    :param include_same: Whether to additionally return True if versions match
-    :type new: bool
-    :return: True if new version number is higher than the current, else False
+    :param include_same: Whether to additionally return True if versions match.
+    :type include_same: bool
+    :return: True if new version number is higher than the current, else False.
     :rtype: bool
     """
     if include_same and new == current:
         return True
 
-    current = current.split(".")
-    new = new.split(".")
-    for step, i in enumerate(new):
-        if len(current) - 1 < step:
+    current_parts = current.split(".")
+    new_parts = new.split(".")
+    for step, new_part in enumerate(new_parts):
+        if len(current_parts) - 1 < step:
             return True
-        if int(current[step]) > int(i):
+        if int(current_parts[step]) > int(new_part):
             return False
-        if int(current[step]) < int(i):
+        if int(current_parts[step]) < int(new_part):
             return True
     return False
 
 
 def get_item_information(action_args):
     """
-    Ease of use tool to retrieve items meta from TraktSyncDatabase based on action arguments
-    :param action_args: action arguments received in call to Seren
+    Ease of use tool to retrieve items meta from TraktSyncDatabase based on action arguments.
+    :param action_args: Action arguments received in call to Seren.
     :type action_args: dict
-    :return: Metadata for item
+    :return: Metadata for item.
     :rtype: dict
     """
     if action_args is None:
@@ -241,37 +207,26 @@ def get_item_information(action_args):
     item_information = {"action_args": action_args}
     if action_args["mediatype"] == "tvshow":
         from resources.lib.database.trakt_sync import shows
-
         item_information.update(shows.TraktSyncDatabase().get_show(action_args["trakt_id"]))
-        return item_information
     elif action_args["mediatype"] == "season":
         from resources.lib.database.trakt_sync import shows
-
-        item_information.update(
-            shows.TraktSyncDatabase().get_season(action_args["trakt_id"], action_args["trakt_show_id"])
-        )
-        return item_information
+        item_information.update(shows.TraktSyncDatabase().get_season(action_args["trakt_id"], action_args["trakt_show_id"]))
     elif action_args["mediatype"] == "episode":
         from resources.lib.database.trakt_sync import shows
-
-        item_information.update(
-            shows.TraktSyncDatabase().get_episode(action_args["trakt_id"], action_args["trakt_show_id"])
-        )
-        return item_information
+        item_information.update(shows.TraktSyncDatabase().get_episode(action_args["trakt_id"], action_args["trakt_show_id"]))
     elif action_args["mediatype"] == "movie":
         from resources.lib.database.trakt_sync import movies
-
         item_information.update(movies.TraktSyncDatabase().get_movie(action_args["trakt_id"]))
-        return item_information
+    return item_information
 
 
 def deconstruct_action_args(action_args):
     """
-    Attempts to create a dictionary from the calls action args
-    :param action_args: potential url quoted, stringed dict
-    :type action_args:  str
-    :return: unquoted and loaded dictionary or str if not json
-    :rtype: dict, str
+    Attempts to create a dictionary from the call's action args.
+    :param action_args: Potential URL quoted, stringed dict.
+    :type action_args: str
+    :return: Unquoted and loaded dictionary or str if not JSON.
+    :rtype: dict | str
     """
     action_args = parse.unquote(action_args)
     try:
@@ -282,10 +237,10 @@ def deconstruct_action_args(action_args):
 
 def construct_action_args(action_args):
     """
-    Takes a json capable response, dumps and urlquotes it ready for URL appending
-    :param action_args: Valid JSON
-    :type action_args: list, dict
-    :return: Url quoted response
+    Takes a JSON-capable response, dumps, and URL quotes it ready for URL appending.
+    :param action_args: Valid JSON.
+    :type action_args: list | dict
+    :return: URL quoted response.
     :rtype: str
     """
     return parse.quote(json.dumps(action_args, sort_keys=True))
@@ -293,12 +248,12 @@ def construct_action_args(action_args):
 
 def extend_array(array1, array2):
     """
-    Safe combining of two lists
-    :param array1: List to combine
+    Safely combines two lists.
+    :param array1: List to combine.
     :type array1: list
-    :param array2: List to combine
+    :param array2: List to combine.
     :type array2: list
-    :return: Combined lists
+    :return: Combined lists.
     :rtype: list
     """
     result = []
@@ -310,18 +265,18 @@ def extend_array(array1, array2):
 
 
 def smart_merge_dictionary(dictionary, merge_dict, keep_original=False, extend_array=True):
-    """Method for merging large multi typed dictionaries, it has support for handling arrays.
-
-    :param dictionary:Original dictionary to merge the second on into.
-    :type dictionary:dict
-    :param merge_dict:Dictionary that is used to merge into the original one.
-    :type merge_dict:dict
-    :param keep_original:Boolean that indicates if there are duplicated values to keep the original one.
-    :type keep_original:bool
-    :param extend_array:Boolean that indicates if we need to extend existing arrays with the enw values..
-    :type extend_array:bool
-    :return:Merged dictionary
-    :rtype:dict
+    """
+    Method for merging large multi-typed dictionaries, with support for handling arrays.
+    :param dictionary: Original dictionary to merge the second into.
+    :type dictionary: dict
+    :param merge_dict: Dictionary to merge into the original one.
+    :type merge_dict: dict
+    :param keep_original: Boolean indicating if duplicated values should keep the original.
+    :type keep_original: bool
+    :param extend_array: Boolean indicating if existing arrays should be extended with new values.
+    :type extend_array: bool
+    :return: Merged dictionary.
+    :rtype: dict
     """
     if not isinstance(dictionary, dict) or not isinstance(merge_dict, dict):
         return dictionary
@@ -348,38 +303,43 @@ def smart_merge_dictionary(dictionary, merge_dict, keep_original=False, extend_a
                     except TypeError:  # Sorting of complex array doesn't work.
                         new_value = original_value
         if new_value or new_value == 0 or isinstance(new_value, bool):
-            # We want to skip empty lists / dicts / sets
+            # Skip empty lists / dicts / sets
             dictionary[new_key] = new_value
     return dictionary
 
 
 def freeze_object(o):
     """
-    Takes in a iterable object, freezes all dicts, tuples lists/sets
-    :param o: Object to free
-    :type o: dict/set/list/tuple
-    :return: Hashable object
-    :rtype: tuple, frozenset
+    Takes an iterable object and freezes all dicts, tuples, lists/sets.
+    :param o: Object to freeze.
+    :type o: dict | set | list | tuple
+    :return: Hashable object.
+    :rtype: tuple | frozenset
     """
     if isinstance(o, dict):
         return frozenset({k: freeze_object(v) for k, v in o.items()}.items())
-
     if isinstance(o, (set, tuple, list)):
         return tuple(freeze_object(v) for v in o)
-
     return o
 
 
 def serialize_sets(obj):
+    """
+    Serializes sets for JSON serialization.
+    :param obj: Object to serialize.
+    :type obj: set | any
+    :return: Serialized object.
+    :rtype: sorted list | any
+    """
     return sorted([str(i) for i in obj]) if isinstance(obj, set) else obj
 
 
 def md5_hash(value):
     """
-    Returns MD5 hash of given value
-    :param value: object to hash
+    Returns MD5 hash of the given value.
+    :param value: Object to hash.
     :type value: object
-    :return: Hexdigest of hash
+    :return: Hexdigest of hash.
     :rtype: str
     """
     if isinstance(value, (tuple, dict, list, set)):
@@ -387,36 +347,30 @@ def md5_hash(value):
     return hashlib.md5(str(value).encode("utf-8")).hexdigest()
 
 
-# Re-added for provider backwards compatibility support
 def log(msg, level):
     """
-    Legacy compat method to log message
-    :param msg: Message to write to log
+    Legacy compatibility method to log messages.
+    :param msg: Message to write to log.
     :type msg: str
-    :param level: Log level
+    :param level: Log level.
     :type level: str
-    :return: None
-    :rtype: None
     """
     from resources.lib.modules.globals import g
-
     g.log(msg, level)
 
 
 def run_threaded(target_func, *args, **kwargs):
     """
-    Ease of use method to spawn a new thread and run without joining
-    :param target_func: function to run
-    :type target_func: Any
-    :param args: tuple of arguments to pass through to function
-    :type args: (int) - > None
-    :param kwargs: dictionary of kwargs to pass to function
-    :type kwargs: (int) - > None
-    :return: The started thread
+    Ease of use method to spawn a new thread and run without joining.
+    :param target_func: Function to run.
+    :type target_func: callable
+    :param args: Arguments to pass through to the function.
+    :type args: tuple
+    :param kwargs: Keyword arguments to pass to the function.
+    :type kwargs: dict
+    :return: The started thread.
     :rtype: threading.Thread
     """
-    from threading import Thread
-
     thread = Thread(target=target_func, args=args, kwargs=kwargs)
     thread.start()
     return thread
@@ -424,11 +378,11 @@ def run_threaded(target_func, *args, **kwargs):
 
 def get_clean_number(value):
     """
-    De-strings stringed int/float and returns respective type
-    :param value: Stringed value of an integer or float
-    :type value: str
-    :return: Converted int or float or None if value error
-    :rtype: int, float, None
+    Converts a stringed int/float to its respective type.
+    :param value: Stringed value of an integer or float.
+    :type value: str | int | float
+    :return: Converted int or float or None if ValueError.
+    :rtype: int | float | None
     """
     if isinstance(value, (int, float)):
         return value
@@ -440,30 +394,28 @@ def get_clean_number(value):
 
 def ensure_path_is_dir(path):
     """
-    Ensure provided path string will work for kodi methods involving directories
-    :param path: Path to directory
+    Ensure provided path string will work for Kodi methods involving directories.
+    :param path: Path to directory.
     :type path: str
-    :return: Formatted path
+    :return: Formatted path.
     :rtype: str
     """
     if sys.platform == "win32":
         if not path.endswith("\\"):
-            if path.endswith("/"):
-                path = path.rstrip("/")
-            return f"{path}\\"
+            path = path.rstrip("/") + "\\"
     elif not path.endswith("/"):
-        return f"{path}/"
+        path += "/"
     return path
 
 
 def safe_round(x, y=0):
-    """PY2 and PY3 equal rounding, its up to 15 digits behind the comma.
-
-    :param x: value to round
+    """
+    PY2 and PY3 equal rounding, up to 15 digits behind the comma.
+    :param x: Value to round.
     :type x: float
-    :param y: decimals behind the comma
+    :param y: Decimals behind the comma.
     :type y: int
-    :return: rounded value
+    :return: Rounded value.
     :rtype: float
     """
     place = 10**y
@@ -474,14 +426,14 @@ def safe_round(x, y=0):
 
 
 def safe_dict_update(dictionary, value):
-    """Checks the value against not valid types to update the dictionary
-
-    :param dictionary:dictionary to update
-    :type dictionary:dict
-    :param value:value to update the supplied dictionary
-    :type value:dict
-    :return:updated dictionary
-    :rtype:dict
+    """
+    Checks the value against invalid types to update the dictionary.
+    :param dictionary: Dictionary to update.
+    :type dictionary: dict
+    :param value: Value to update the supplied dictionary.
+    :type value: dict
+    :return: Updated dictionary.
+    :rtype: dict
     """
     if dictionary is None:
         return dictionary
@@ -491,21 +443,21 @@ def safe_dict_update(dictionary, value):
 
 
 def is_stub():
-    """Checks if the current loaded xbmc lib is from kodistubs
-
-    :return:True or False indicating if this is a kodistub
-    :rtype:bool
+    """
+    Checks if the current loaded xbmc lib is from kodistubs.
+    :return: True or False indicating if this is a kodistub.
+    :rtype: bool
     """
     return hasattr(xbmc, "__kodistubs__")
 
 
 def validate_path(path):
-    """Returns the translated path.
-
-    :param path:Path to format
-    :type path:str
-    :return:Translated path
-    :rtype:str
+    """
+    Returns the translated path.
+    :param path: Path to format.
+    :type path: str
+    :return: Translated path.
+    :rtype: str
     """
     if hasattr(xbmcvfs, "validatePath"):
         path = xbmcvfs.validatePath(path)  # pylint: disable=no-member
@@ -515,12 +467,12 @@ def validate_path(path):
 
 
 def translate_path(path):
-    """Validates the path against the running platform and ouputs the clean path.
-
-    :param path:Path to be verified
-    :type path:str
-    :return:Verified and cleaned path
-    :rtype:str
+    """
+    Validates the path against the running platform and outputs the clean path.
+    :param path: Path to be verified.
+    :type path: str
+    :return: Verified and cleaned path.
+    :rtype: str
     """
     if hasattr(xbmcvfs, "translatePath"):
         path = xbmcvfs.translatePath(path)  # pylint: disable=no-member
@@ -530,18 +482,18 @@ def translate_path(path):
 
 
 def create_multiline_message(line1=None, line2=None, line3=None, *lines):
-    """Creates a message from the supplied lines
-
-    :param line1:Line 1
-    :type line1:str
-    :param line2:Line 2
-    :type line2:str
-    :param line3: Line3
-    :type line3:str
-    :param lines:List of additional lines
-    :type lines:list[str]
-    :return:New message wit the combined lines
-    :rtype:str
+    """
+    Creates a message from the supplied lines.
+    :param line1: Line 1.
+    :type line1: str
+    :param line2: Line 2.
+    :type line2: str
+    :param line3: Line 3.
+    :type line3: str
+    :param lines: List of additional lines.
+    :type lines: list[str]
+    :return: New message with the combined lines.
+    :rtype: str
     """
     result = []
     if line1:
@@ -556,20 +508,14 @@ def create_multiline_message(line1=None, line2=None, line3=None, *lines):
 
 
 def makedirs(name, mode=0o777, exist_ok=False):
-    """makedirs(name [, mode=0o777][, exist_ok=False])
-
-    Super-mkdir; create a leaf directory and all intermediate ones.  Works like
-    mkdir, except that any intermediate path segment (not just the rightmost)
-    will be created if it does not exist. If the target directory already
-    exists, raise an OSError if exist_ok is False. Otherwise no exception is
-    raised.  This is recursive.
-
-    :param name:Name of the directory to be created
-    :type name:str
-    :param mode:Unix file mode for created directories
-    :type mode:int
-    :param exist_ok:Boolean to indicate whether is should raise on an exception
-    :type exist_ok:bool
+    """
+    Super-mkdir; create a leaf directory and all intermediate ones.
+    :param name: Name of the directory to be created.
+    :type name: str
+    :param mode: Unix file mode for created directories.
+    :type mode: int
+    :param exist_ok: Boolean indicating whether to raise an exception if the directory exists.
+    :type exist_ok: bool
     """
     try:
         os.makedirs(name, mode)
@@ -580,8 +526,11 @@ def makedirs(name, mode=0o777, exist_ok=False):
 
 def merge_dicts(*dict_args):
     """
-    Given any number of dictionaries, shallow copy and merge into a new dict,
-    precedence goes to key value pairs in latter dictionaries.
+    Given any number of dictionaries, shallow copy and merge into a new dict.
+    :param dict_args: Dictionaries to merge.
+    :type dict_args: dict
+    :return: Merged dictionary.
+    :rtype: dict
     """
     result = {}
     for dictionary in dict_args:
@@ -590,27 +539,27 @@ def merge_dicts(*dict_args):
 
 
 def filter_dictionary(dictionary, *keys):
-    """Filters the dictionary with the supplied args
-
-    :param dictionary:Dictionary to filter
-    :type dictionary:dict
-    :param keys:Keys to filter on
-    :type keys:any
-    :return:Filtered dictionary
-    :rtype:dict
+    """
+    Filters the dictionary with the supplied keys.
+    :param dictionary: Dictionary to filter.
+    :type dictionary: dict
+    :param keys: Keys to filter on.
+    :type keys: any
+    :return: Filtered dictionary.
+    :rtype: dict
     """
     return {k: v for k in keys if (v := dictionary.get(k))} if dictionary else None
 
 
 def safe_dict_get(dictionary, *path):
-    """Safely get the value from a given path taken into account that the path can be none.
-
-    :param dictionary:Dictionary to take the path from
-    :type dictionary:dict
-    :param path:Collection of items we try to get form the dict.
-    :type path:str
-    :return:The value for that given path
-    :rtype:any
+    """
+    Safely gets the value from a given path, taking into account that the path can be None.
+    :param dictionary: Dictionary to take the path from.
+    :type dictionary: dict
+    :param path: Collection of items to get from the dict.
+    :type path: str
+    :return: The value for the given path.
+    :rtype: any
     """
     if not isinstance(dictionary, dict):
         return None
@@ -631,7 +580,7 @@ def safe_dict_get(dictionary, *path):
 @total_ordering
 class FixedSortPositionObject:
     """
-    A class that always returns equality for a comparison with any other object
+    A class that always returns equality for a comparison with any other object.
     """
 
     def __lt__(self, other):

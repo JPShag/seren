@@ -1,13 +1,12 @@
 import concurrent.futures
 from functools import reduce
-
 from resources.lib.common import tools
 from resources.lib.modules.globals import g
 
 
 class ThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
     """
-    Support the python 3.9+ option to cancel futures on shutdown
+    Extends the ThreadPoolExecutor to support cancelling futures on shutdown.
     """
 
     import queue
@@ -16,20 +15,15 @@ class ThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
         """
         Clean-up the resources associated with the Executor.
 
-        It is safe to call this method several times. Otherwise, no other methods can be called after this one.
-
-        :param wait: If True then shutdown will not return until all running futures have finished executing and the
+        :param wait: If True, shutdown will not return until all running futures have finished executing and the
                      resources used by the executor have been reclaimed.
-        :param cancel_futures: If cancel_futures is True, this method will cancel all pending futures that the executor
-                               has not started running. Any futures that are completed or running won’t be cancelled,
-                               regardless of the value of cancel_futures
-        :return:
+        :param cancel_futures: If True, cancels all pending futures that the executor has not started running.
+                               Completed or running futures won’t be cancelled.
         """
         with self._shutdown_lock:
             self._shutdown = True
             if cancel_futures:
-                # Drain all work items from the queue, and then cancel their
-                # associated futures.
+                # Drain all work items from the queue and cancel their associated futures.
                 while True:
                     try:
                         work_item = self._work_queue.get_nowait()
@@ -38,8 +32,7 @@ class ThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
                     if work_item is not None:
                         work_item.future.cancel()
 
-            # Send a wake-up to prevent threads calling
-            # _work_queue.get(block=True) for permanently blocking.
+            # Prevent threads from blocking permanently.
             self._work_queue.put(None)
         if wait:
             for t in self._threads:
@@ -48,10 +41,10 @@ class ThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
 
 class ThreadPool:
     """
-    Helper class to simplify raising worker_pool
+    Helper class to simplify creating and managing a thread pool.
     """
 
-    # Default, Low, Medium, High, Extreme
+    # Worker scaling levels: Default, Low, Medium, High, Extreme
     scaled_workers = [20, 10, 20, 40, 80]
 
     def __init__(self):
@@ -66,6 +59,12 @@ class ThreadPool:
 
     @staticmethod
     def _handle_results(results):
+        """
+        Handle results from futures and merge or collect them appropriately.
+        
+        :param results: An iterable of results from futures.
+        :return: Merged or collected results.
+        """
         result_iter = iter(results)
 
         for result in result_iter:
@@ -90,24 +89,21 @@ class ThreadPool:
 
     def put(self, func, *args, **kwargs):
         """
-        Adds task to executor and starts it running
-        :param func: method to run in task
-        :type func: object
-        :param args: arguments to assign to method
-        :type args: any
-        :param kwargs: kwargs to assign to method
-        :type kwargs: any
-        :return:
-        :rtype:
+        Adds a task to the executor and starts it running.
+
+        :param func: The function to run as a task.
+        :type func: callable
+        :param args: Arguments for the function.
+        :param kwargs: Keyword arguments for the function.
         """
         self.tasks.append(self.executor.submit(func, *args, **kwargs))
 
     def wait_completion(self):
         """
-        Joins threads and waits for their completion, raises any exceptions if any present and returns results if
-        present
-        :return: The results
-        :raises: The first exception identified if an exception is raised
+        Waits for the completion of all tasks, raises any exceptions if present, and returns the results.
+
+        :return: The results of all tasks.
+        :raises: The first exception raised if any task fails.
         """
         try:
             for task in concurrent.futures.as_completed(self.tasks):
@@ -125,11 +121,12 @@ class ThreadPool:
 
     def map_results(self, func, args_iterable=None, kwargs_iterable=None):
         """
-        Takes iterables for args and kwargs and runs func with them, gathers the results and returns in order
-        :param func: The function to execute
-        :param args_iterable: An iterable of args tuples
-        :param kwargs_iterable: An iterable of kwargs dicts
-        :return: The results
+        Takes iterables for args and kwargs, runs func with them, gathers the results, and returns them in order.
+
+        :param func: The function to execute.
+        :param args_iterable: An iterable of argument tuples.
+        :param kwargs_iterable: An iterable of keyword argument dictionaries.
+        :return: The results.
         """
         try:
             return self._handle_results(
