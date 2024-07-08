@@ -15,32 +15,42 @@ class MySQLCursorDict(mysql.connector.connection.MySQLCursor):
 
     ERR_NO_RESULT_TO_FETCH = "No result set to fetch from"
 
-    def _row_to_python(self, rowdata, desc=None):
-        """Convert a MySQL text result row to Python types
+    def _row_to_python(self, rowdata):
+        """
+        Convert a MySQL text result row to Python types.
 
         Returns a dictionary.
         """
-        return dict(zip(self.column_names, row)) if (row := rowdata) else None
+        return dict(zip(self.column_names, rowdata)) if rowdata else None
 
     def fetchone(self):
-        """Returns next row of a query result set"""
-        if row := self._fetch_row():
-            return self._row_to_python(row, self.description)
+        """
+        Returns the next row of a query result set as a dictionary.
+        """
+        row = self._fetch_row()
+        if row:
+            return self._row_to_python(row)
         return None
 
     def fetchall(self):
-        """Returns all rows of a query result set"""
+        """
+        Returns all rows of a query result set as a list of dictionaries.
+        """
         if not self._have_unread_result():
             from mysql.connector.errors import InterfaceError
-
             raise InterfaceError(self.ERR_NO_RESULT_TO_FETCH)
-        (rows, eof) = self._connection.get_rows()
+
+        rows, eof = self._connection.get_rows()
         if self._nextrow[0]:
             rows.insert(0, self._nextrow[0])
-        res = [self._row_to_python(row, self.description) for row in rows]
+        
+        result = [self._row_to_python(row) for row in rows]
+        
         self._handle_eof(eof)
         rowcount = len(rows)
         if rowcount >= 0 and self._rowcount == -1:
             self._rowcount = 0
         self._rowcount += rowcount
-        return res
+        
+        return result
+
