@@ -5,6 +5,10 @@ from resources.lib.modules.serenMonitor import ONWAKE_NETWORK_UP_DELAY
 from resources.lib.modules.timeLogger import TimeLogger
 
 def _sleeping_retry_handler():
+    """
+    Handles retrying when the system is detected to be in a sleeping state.
+    For Android platforms, it will check if the system is sleeping and wait for it to wake up.
+    """
     sleeping = False
 
     if g.PLATFORM == "android":
@@ -24,6 +28,11 @@ def _sleeping_retry_handler():
     return not sleeping
 
 def seren_recode_endpoint():
+    """
+    The main endpoint for handling plugin actions for Seren Recode.
+    It initializes global settings, checks if the system is in a sleeping state,
+    and dispatches the request to the appropriate handler.
+    """
     try:
         # Initialize global settings and parameters
         g.init_globals(sys.argv)

@@ -30,15 +30,18 @@ g.log(f"### Detected Kodi Version: {g.KODI_VERSION}")
 g.log(f"### Detected timezone: {repr(g.LOCAL_TIMEZONE.zone)}")
 g.log("#############  SERVICE ENTERED KEEP ALIVE  #################")
 
+# Create an instance of the SerenMonitor
 monitor = SerenMonitor()
 
 try:
-    # Execute various maintenance tasks
+    # Execute initial maintenance tasks
     xbmc.executebuiltin('RunPlugin("plugin://plugin.video.seren/?action=longLifeServiceManager")')
 
+    # Update news and validate detected timezone
     do_update_news()
     validate_timezone_detected()
     
+    # Clear Kodi bookmarks, handle possible exceptions
     try:
         g.clear_kodi_bookmarks()
     except TypeError:
@@ -47,6 +50,7 @@ try:
             "warning",
         )
 
+    # Clean up torrent cache
     xbmc.executebuiltin('RunPlugin("plugin://plugin.video.seren/?action=torrentCacheCleanup")')
 
     # Allow widget loads to complete by waiting for 30 seconds
@@ -54,15 +58,18 @@ try:
     
     # Main service loop to run various maintenance tasks at intervals
     while not monitor.abortRequested():
+        # Perform maintenance tasks with delays
         xbmc.executebuiltin('RunPlugin("plugin://plugin.video.seren/?action=runMaintenance")')
         
-        # Check for abort and run maintenance tasks with appropriate delays
+        # Synchronize Trakt activities if not aborted
         if not g.wait_for_abort(15):
             xbmc.executebuiltin('RunPlugin("plugin://plugin.video.seren/?action=syncTraktActivities")')
         
+        # Clean orphaned metadata if not aborted
         if not g.wait_for_abort(15):
             xbmc.executebuiltin('RunPlugin("plugin://plugin.video.seren/?action=cleanOrphanedMetadata")')
         
+        # Update local timezone if not aborted
         if not g.wait_for_abort(15):
             xbmc.executebuiltin('RunPlugin("plugin://plugin.video.seren/?action=updateLocalTimezone")')
         
@@ -71,5 +78,6 @@ try:
             break
 
 finally:
-    del monitor  # Clean up the monitor instance
-    g.deinit()  # Deinitialize global settings and parameters
+    # Clean up the monitor instance and deinitialize global settings and parameters
+    del monitor
+    g.deinit()
